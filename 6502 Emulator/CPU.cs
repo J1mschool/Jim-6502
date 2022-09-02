@@ -1,5 +1,6 @@
 ﻿using System;
 using static _6502_Emulator.Instruction;
+using static _6502_Emulator.Instruction.AddressingMode;
 
 namespace _6502_Emulator
 {
@@ -107,8 +108,8 @@ namespace _6502_Emulator
 
         public int cyclesRemaining = 0;
         public Instruction currentInstruction;
-
-        public int extraCycles = 0;
+        public bool branch = false;
+        int extraCycles = 0;
 
         public void Clock()
         {
@@ -315,8 +316,8 @@ namespace _6502_Emulator
 
         //Instuction Set (Alphabetical A-Z)
 
-        public Instruction[] Opcodes = new Instruction[256];
-        public Instruction SetOP(string _name, int _runCycles, ushort _opcode, function _instructionMethod, AddressingMode _AM)
+        Instruction[] Opcodes = new Instruction[256];
+        Instruction SetOP(string _name, int _runCycles, ushort _opcode, function _instructionMethod, AddressingMode _AM)
         {
             Instruction dummy = new Instruction();
 
@@ -330,7 +331,7 @@ namespace _6502_Emulator
 
             return dummy;
         }
-        public Instruction SetOP(string _name, int _runCycles, ushort _opcode, function _instructionMethod, AddressingMode _AM, bool _extraCycles)
+        Instruction SetOP(string _name, int _runCycles, ushort _opcode, function _instructionMethod, AddressingMode _AM, bool _extraCycles)
         {
             Instruction dummy = new Instruction();
 
@@ -347,8 +348,8 @@ namespace _6502_Emulator
 
         #region Instruction Methods
 
-        // Instruction Methods
-        void ADC_() //ADD with CARRY
+        //  Instruction Methods
+        void ADC_() // ADD with CARRY
         {
            
             byte operand = Fetch();
@@ -375,7 +376,7 @@ namespace _6502_Emulator
                                                                                //  N + N = P 
 
         }
-        void AND_() //ACC = OP AND ACC 
+        void AND_() // ACC = OP AND ACC 
         {
 
             byte f = Fetch();
@@ -388,7 +389,7 @@ namespace _6502_Emulator
             SetFlag(SR_Flags.N, (ACC & 0x80) == 0x80);     //0b 10000000   if most sig bit is set
 
         }
-        void ASL_() // Shift Left One BIt
+        void ASL_() // Arithmetic Shift Left One BIt
         {
             Fetch();
 
@@ -425,7 +426,7 @@ namespace _6502_Emulator
 
        
         } 
-        void BCS_() //Branch if Carry 
+        void BCS_() // Branch if Carry 
         {
             if (IsFlagSet(SR_Flags.C))
             {
@@ -444,11 +445,21 @@ namespace _6502_Emulator
 
 
         }
-        void BIT_() { }  
+        void BIT_() //Test Memory Bits with ACC
+        {
+            byte f = Fetch();
+
+            byte testbits = (byte)(f & 0xC0);// test with bits 6 and 7
+            SR |= testbits;
+
+            SetFlag(SR_Flags.Z, (f & ACC) == 0);
+        }  
         void BEQ_() // Branch if  Zero 
         {
             if (IsFlagSet(SR_Flags.Z) ) // If Zero Flag set
             {
+                branch = true;
+
                 cyclesRemaining++;
                 abs_address = (ushort)(PC + rel_address);
 
@@ -460,12 +471,15 @@ namespace _6502_Emulator
                 PC = abs_address; // jump to new address
             }
 
-
+            else
+                branch = false;
         } 
         void BMI_() // Branch if Negative
         {
             if (IsFlagSet(SR_Flags.N) ) // If N flag NOT set
             {
+                branch = true;
+
                 cyclesRemaining++;
                 abs_address = (ushort)(PC + rel_address);
 
@@ -475,8 +489,10 @@ namespace _6502_Emulator
                 }
 
                 PC = abs_address; // jump to new address
+               
             }
-
+            else
+                branch = false;
         }
         void BNE_() // Branch if NOT Zero
         {
@@ -491,8 +507,10 @@ namespace _6502_Emulator
                 }
 
                 PC = abs_address; // jump to new address
+                branch = true;
             }
-
+            else
+                branch = false;
 
 
         }
@@ -509,21 +527,42 @@ namespace _6502_Emulator
                 }
 
                 PC = abs_address; // jump to new address
+                branch = true;
             }
-
-
+            else
+                branch = false;
 
         }
-        void BRK_()
+        void BRK_() //Break - software interrupt
         {
             PC++;
+
+            //WRITE PC to Stack 
+            Write((ushort)(0x0100 + STKptr), (byte)((PC >> 8) & 0x00FF)); // hi byte
+            STKptr -= 1;
+
+            Write((ushort)(0x0100 + STKptr), (byte)(PC & 0x00FF)); // lo byte  
+            STKptr -= 1;
+
+            //PUSH SR TO STACK
+            SetFlag(SR_Flags.B);
+            SetFlag(SR_Flags.I);
+            Write((ushort)(0x0100 + STKptr), (byte)SR);
+
+            abs_address = 0XFFFE;  // JUMP TO  Interrupt Vector
+            ushort lo = Read(abs_address);
+            ushort hi = Read(abs_address + 1);
+
+            PC = (ushort)(hi << 8 | lo);
+
         }
-        void BVC_()  // Branch if Not Overflow
+        void BVC_() // Branch if Not Overflow
         {
             // Branch if Overflow (V)
             {
                 if (IsFlagSet(SR_Flags.V) == false) // If flag  set
                 {
+                    branch = true;
                     cyclesRemaining++;
                     abs_address = (ushort)(PC + rel_address);
 
@@ -535,11 +574,11 @@ namespace _6502_Emulator
                     PC = abs_address; // jump to new address
                 }
 
-
-
+                else
+                    branch = false;
             }
         }
-        void BVS_()   // Branch if Overflow (V)
+        void BVS_() // Branch if Overflow (V)
         {
             if (IsFlagSet(SR_Flags.V)) // If flag  set
             {
@@ -552,30 +591,31 @@ namespace _6502_Emulator
                 }
 
                 PC = abs_address; // jump to new address
+                branch = true;
             }
 
-
-
+            else
+                branch = false;
         }
-        void CLC_() // Clear Carry Flag
+        void CLC_() //* Clear Carry Flag
         {
             DeSetFlag(SR_Flags.C);
         
         }
-        void CLD_() //Clear Decimal Flag
+        void CLD_() // Clear Decimal Flag
         {
             DeSetFlag(SR_Flags.D);
 
         }
-        void CLI_() //Clear Intrrupt Disable Flag
+        void CLI_() // Clear Intrrupt Disable Flag
         {
             DeSetFlag(SR_Flags.I);
         }
-        void CLV_()  // Clear Overflow
+        void CLV_() // Clear Overflow
         {
             DeSetFlag(SR_Flags.V);
         }
-        void CMP_() //Compare ACC with Memory (subtract)
+        void CMP_() // Compare ACC with Memory (subtract)
         {
            byte f = Fetch();
             PC++;
@@ -585,12 +625,63 @@ namespace _6502_Emulator
             SetFlag(SR_Flags.Z, (difference & 0x00FF) == 0); // same number
             SetFlag(SR_Flags.N, (difference & 0x80) == 0x80);
         }
-        void CPX_() { }
-        void CPY_() { }
-        void DEC_() { }
-        void DEX_() { }
-        void DEY_() { }
-        void EOR_() { }
+        void CPX_() // Compare X with Memory (subtract)
+        {
+            byte f = Fetch();
+            PC++;
+            ushort difference = (ushort)(X - f);
+
+            SetFlag(SR_Flags.C, X >= f);
+            SetFlag(SR_Flags.Z, (difference & 0x00FF) == 0); // same number
+            SetFlag(SR_Flags.N, (difference & 0x80) == 0x80);
+        }
+        void CPY_() // Compare Y with Memory (subtract)
+        {
+            byte f = Fetch();
+            PC++;
+            ushort difference = (ushort)(Y - f);
+
+            SetFlag(SR_Flags.C, Y >= f);
+            SetFlag(SR_Flags.Z, (difference & 0x00FF) == 0); // same number
+            SetFlag(SR_Flags.N, (difference & 0x80) == 0x80);
+        }
+        void DEC_() // Decrement Memory
+        {
+            byte f = Fetch();
+            f -= 1;
+
+            Write(abs_address, f);
+            PC++;
+
+            SetFlag(SR_Flags.Z, f == 0);
+            SetFlag(SR_Flags.N, (f & 0x80) == 0x80);
+
+        }
+        void DEX_() // Decrement X
+        {
+            X -= 1;
+            SetFlag(SR_Flags.Z, X == 0);
+            SetFlag(SR_Flags.N, (X & 0x80) == 0x08);
+
+        }
+        void DEY_() // Decrement Y
+        {
+            Y -= 1;
+            SetFlag(SR_Flags.Z, Y == 0);
+            SetFlag(SR_Flags.N, (Y & 0x80) == 0x08);
+
+        }
+        void EOR_() // XOR Memory with ACC
+        {
+            byte f = Fetch();
+            PC++;
+
+            ACC = (byte)(f ^ ACC);
+
+            SetFlag(SR_Flags.Z, (ACC & 0xFF) == 0); 
+            SetFlag(SR_Flags.N, (ACC & 0x80) == 0x80);
+
+        }
         void INC_() // Increment memory by one
         {
             byte f = Fetch();
@@ -610,7 +701,7 @@ namespace _6502_Emulator
             SetFlag(SR_Flags.N, (X & 0x80) == 0x08);
 
         }
-        void INY_()  // Increment Y by one
+        void INY_() // Increment Y by one
         {
             Y += 1;
             SetFlag(SR_Flags.Z, Y == 0);
@@ -621,29 +712,87 @@ namespace _6502_Emulator
         void JMP_() // Jump to new Location
         {
             PC = abs_address;
-        
         }
         void JSR_() // Jump to Subroutine
         {
-            PC -= 1;
-            // Push Current PC to stack
+            //Stack is FILO so HI,LO in = LO,HI OUT.
 
-            Write((ushort)(STKptr + 0X0100), ACC);
+            PC -= 1; // Step Behind Instruction
+         
+            // Push PC to stack
+            Write((ushort)(STKptr + 0X0100), (byte)(PC >> 8)); // hi
             STKptr -= 1;
 
+            Write((ushort)(STKptr + 0X0100), (byte)(PC & 0xFF));  //lo
+            STKptr -= 1;
+
+            PC = abs_address;
 
         }
-        void LDA_() // Load ACC
-        { }
-        void LDX_() { }
-        void LDY_() { }
-        void LSR_() { }
-        void NOP_() { }
-        void ORA_() { }
+        void LDA_() // Load Memory into ACC
+        {
+            ACC = Fetch();
+            PC++;
+            SetFlag(SR_Flags.Z, ACC == 0);
+            SetFlag(SR_Flags.N, (ACC & 0x80) == 0x80);
+        }
+        void LDX_() // Load Memory into X
+        {
+            X = Fetch();
+            PC ++;
+            SetFlag(SR_Flags.Z, X == 0);
+            SetFlag(SR_Flags.N, (X & 0x80) == 0x80);
+
+        }
+        void LDY_() // Load Memory into Y
+        {
+            Y = Fetch();
+            PC++;
+            SetFlag(SR_Flags.Z, Y == 0);
+            SetFlag(SR_Flags.N, (Y & 0x80) == 0x80);
+        }
+        void LSR_() // Logical Shift Right
+        {
+            byte f = Fetch();
+            f = (byte)(f >> 1);
+
+            SetFlag(SR_Flags.C, (f & 0x01) == 1);
+            DeSetFlag(SR_Flags.N);
+            SetFlag(SR_Flags.Z, f == 0);
+
+            if (currentInstruction.adrMode == AddressingMode.IMP)
+                ACC = (byte)(f & 0xFF);
+
+            else
+                Write(abs_address, (byte)(f & 0xFF));
+
+        }
+        void NOP_() { return; } // Do Nothing :)
+        void ORA_() //  OR Memory with ACC
+        {
+            byte f = Fetch();
+            PC++;
+            ACC = (byte)(f | ACC);
+
+            SetFlag(SR_Flags.Z, (ACC & 0xFF) == 0);
+            SetFlag(SR_Flags.N, (ACC & 0x80) == 0x80);
+        }
         void PHA_() // PUSH ACC to stack
         {
             Write( (ushort)(STKptr + 0X0100) , ACC);
             STKptr -= 1;
+        }
+        void PHP_() // PUSH SR to stack
+        {
+            SetFlag(SR_Flags.B);
+            SetFlag(SR_Flags.E);
+            Write((ushort)(STKptr + 0X0100), ACC);
+
+            DeSetFlag(SR_Flags.B);
+            DeSetFlag(SR_Flags.E);
+
+            STKptr -= 1;
+
         }
         void PLA_() // POP stack to ACC
         {
@@ -654,16 +803,53 @@ namespace _6502_Emulator
             SetFlag(SR_Flags.N, (ACC & 0X80) == 0X80);
 
         }
-        void PHP_() 
+        void PLP_() // PULL SR FROM STACK
         {
-        
-        
-        
+            STKptr += 1;
+
+            SR = Read((ushort)STKptr + 0x0100);
+            SetFlag(SR_Flags.E);
+
         }
-        void PLP_() { }
-        void ROL_() { }
-        void ROR_() { }
-        void RTI_() // return From Interrupt
+        void ROL_() // ROTATE LEFT 
+        {
+            byte f = Fetch();
+            f = (byte)(f << 1);
+            f |= GetFlag(SR_Flags.C);
+
+
+            SetFlag(SR_Flags.C, (fetchedByte & 0x01) == 1);
+            SetFlag(SR_Flags.Z, (f) == 0);
+            SetFlag(SR_Flags.N, (f & 0x80) == 0x80);
+
+            if (currentInstruction.adrMode == A)
+                ACC = f;
+
+            else
+                Write(abs_address, f);
+
+        }
+        void ROR_() // ROTATE RIGHT 
+        {
+            SetFlag(SR_Flags.C);
+            byte f = Fetch(); 
+
+            f = (byte)(f >> 1);
+            f = (byte)(f | (GetFlag(SR_Flags.C) << 7)); // if Carry is set - make it 7th bit
+
+            SetFlag(SR_Flags.C, (fetchedByte & 0x01) == 1);
+            SetFlag(SR_Flags.Z, (f) == 0);
+            SetFlag(SR_Flags.N, (f & 0x80) == 0x80);
+
+            // f is a byte so it has to be less that 255 anyway OBVIOUSLLYYY...
+            if (currentInstruction.adrMode == A)
+                ACC = f;
+
+            else
+                Write(abs_address, f);
+
+        }
+        void RTI_() // Return From Interrupt
         {
             // ( Opposite of IRQ)
 
@@ -683,9 +869,19 @@ namespace _6502_Emulator
 
 
         }
-        void RTS_() 
+        void RTS_() // Return From Subroutine
         {
-        
+            //POP PC from Stack
+
+            STKptr++;
+            PC = (ushort)Read(0x0100 + STKptr); // lo
+
+            STKptr++;
+            PC |= (ushort)Read((0x0100 + STKptr) << 8); // hi
+
+            //Go to NEXT instruction.
+            PC++;
+
         }
         void SBC_() // Subtraction With Carry (borrow)
         {
@@ -721,28 +917,69 @@ namespace _6502_Emulator
         {
             SetFlag(SR_Flags.D);
         }
-        void SEI_()  // Set Interrupt Disa
+        void SEI_() // Set Interrupt Disable
         {
             SetFlag(SR_Flags.I);
         }
-        void STA_() { }
-        void STX_() { }
-        void STY_() { }
-        void TAX_() { }
-        void TAY_() { }
-        void TSX_() { }
-        void TXA_() { }
-        void TXS_() { }
-        void TYA_() { }
-        void XXX_() 
-        { }
+        void STA_() // Store ACC in Memory
+        {
+            Write(abs_address, ACC);
+        }
+        void STX_() // Store X in Memory
+        {
+            Write(abs_address, X);
+        }
+        void STY_() // Store Y in Memory
+        {
+            Write(abs_address, Y);
+          
+        }
+        void TAX_() // Transfer ACC -> X
+        {
+            X = ACC;
+            SetFlag(SR_Flags.Z, X == 0);
+            SetFlag(SR_Flags.N, (X & 0x80) == 0x80);
+
+        }
+        void TAY_() // Transfer ACC -> Y 
+        {
+            Y = ACC;
+            SetFlag(SR_Flags.Z, Y == 0);
+            SetFlag(SR_Flags.N, (Y & 0x80) == 0x80);
+        }
+        void TSX_() // Transfer STKptr -> X
+        {
+            X = STKptr;
+            SetFlag(SR_Flags.Z, X == 0);
+            SetFlag(SR_Flags.N, (X & 0x80) == 0x80);
+
+
+        }
+        void TXA_() // Transfer X -> ACC
+        {
+            ACC = X;
+            SetFlag(SR_Flags.Z, ACC == 0);
+            SetFlag(SR_Flags.N, (ACC & 0x80) == 0x80);
+        }
+        void TXS_() // Transfer X -> STKptr
+        {
+            STKptr = X;
+           
+        }
+        void TYA_() // Transfer Y -> ACC
+        {
+            ACC = Y;
+            SetFlag(SR_Flags.Z, ACC == 0);
+            SetFlag(SR_Flags.N, (ACC & 0x80) == 0x80);
+        }
+        void XXX_() { return; } // Illegal so i wont worry abt it for now
         #endregion
         public void initOPCODES()
         {
 
             //CPU INSTRUCTIONS ( Alphabetical A-Z)
 
-            //ADC - Working i think 
+            //ADD WITH CARRY (ADC)
 
             Opcodes[0x69] = SetOP("ADC", 2, 0x69, ADC_, AddressingMode.IMM);
  
@@ -760,7 +997,7 @@ namespace _6502_Emulator
  
             Opcodes[0x71] = SetOP("ADC", 5, 0x71, ADC_, AddressingMode.IZY, true);
 
-            //AND 
+            //AND WITH ACCUMLATOR (AND)
 
             Opcodes[0x29] = SetOP("AND", 2, 0x29, AND_ , AddressingMode.IMM);
             
@@ -778,7 +1015,7 @@ namespace _6502_Emulator
             
             Opcodes[0x31] = SetOP("AND", 5, 0x31, AND_,  AddressingMode.IZY,true);
 
-            //ASL
+            //ARITHMETIC SHIFT LEFT (ASL)
 
             Opcodes[0x0A] = SetOP("ASL", 2, 0x0A, ASL_, AddressingMode.A);
 
@@ -809,13 +1046,14 @@ namespace _6502_Emulator
 
             Opcodes[0x70] = SetOP("BVS", 2, 0x70, BVS_, AddressingMode.REL);
 
-            //BREAK
+            //BREAK (BRK)
+
+            Opcodes[0x00] = SetOP("BRK", 7, 0x00, BRK_, AddressingMode.IMP);
 
 
-            //Opcodes[0x00] = SetOP("BRK", 7, 0x00, BRK_ AddressingMode.IMP);
-            
+            // CLEAR FLAGS - Fully Tested :D
 
-            // CLEAR FLAGS
+            Opcodes[0x18] = SetOP("CLC", 2, 0xD8, CLC_, AddressingMode.IMP);
 
             Opcodes[0xD8] = SetOP("CLD", 2, 0xD8, CLD_, AddressingMode.IMP);
 
@@ -823,7 +1061,8 @@ namespace _6502_Emulator
 
             Opcodes[0xB8] = SetOP("CLV", 2, 0xB8, CLV_, AddressingMode.IMP);
 
-            //COMPARE 
+
+            //COMPARE ACC (CMP)
 
             Opcodes[0xC9] = SetOP("CMP", 2, 0xC9, CMP_, AddressingMode.IMM);
 
@@ -841,8 +1080,61 @@ namespace _6502_Emulator
 
             Opcodes[0xD1] = SetOP("CMP", 5, 0xD1, CMP_, AddressingMode.IZY, true);
 
+            //COMPARE X (CPX)
 
-            //INCREMENT - Tested :D
+            Opcodes[0xE0] = SetOP("CPX", 2, 0xE0, CPX_, AddressingMode.IMM);
+
+            Opcodes[0xE4] = SetOP("CPX", 3, 0xE4, CPX_, AddressingMode.ZP0);
+
+            Opcodes[0xEC] = SetOP("CPX", 4, 0xEC, CPX_, AddressingMode.ABS);
+
+            //COMPARE Y (CPY)
+
+            Opcodes[0xC0] = SetOP("CPY", 2, 0xE0, CPY_, AddressingMode.IMM);
+
+            Opcodes[0xC4] = SetOP("CPY", 3, 0xE4, CPY_, AddressingMode.ZP0);
+
+            Opcodes[0xCC] = SetOP("CPY", 4, 0xEC, CPY_, AddressingMode.ABS);
+
+
+            //DECREMENT MEMORY (DEC)
+
+            Opcodes[0xC6] = SetOP("DEC", 5, 0xC6, DEC_, AddressingMode.ZP0);
+
+            Opcodes[0xD6] = SetOP("DEC", 6, 0xD6, DEC_, AddressingMode.ZPX);
+
+            Opcodes[0xCE] = SetOP("DEC", 6, 0xCE, DEC_, AddressingMode.ABS);
+
+            Opcodes[0xDE] = SetOP("DEC", 7, 0xDE, DEC_, AddressingMode.ABX);
+
+            //DECREMENT X - (DEY)
+
+            Opcodes[0xCA] = SetOP("DEX", 2, 0xCA, DEX_, AddressingMode.IMP);
+
+            //DECREMENT Y (DEY)
+
+            Opcodes[0x88] = SetOP("DEX", 2, 0x88, DEY_, AddressingMode.IMP);
+
+            // EXCLUSIVE OR (XOR / "EOR")
+
+            Opcodes[0x49] = SetOP("EOR", 2, 0x49, EOR_, AddressingMode.IMM);
+
+            Opcodes[0x45] = SetOP("EOR", 3, 0x45, EOR_, AddressingMode.ZP0);
+
+            Opcodes[0x55] = SetOP("EOR", 4, 0x55, EOR_, AddressingMode.ZPX);
+
+            Opcodes[0x4D] = SetOP("EOR", 4, 0x4D, EOR_, AddressingMode.ABS);
+
+            Opcodes[0x5D] = SetOP("EOR", 4, 0x5D, EOR_, AddressingMode.ABX, true);
+
+            Opcodes[0x59] = SetOP("EOR", 4, 0x59, EOR_, AddressingMode.ABY, true);
+
+            Opcodes[0x41] = SetOP("EOR", 6, 0x41, EOR_, AddressingMode.IZX);
+
+            Opcodes[0x51] = SetOP("EOR", 5, 0x51, EOR_, AddressingMode.IZY, true);
+
+
+            //INCREMENT MEMORY (INC) - Fully Tested :D
 
             Opcodes[0xE6] = SetOP("INC", 5, 0xE6, INC_, AddressingMode.ZP0);
 
@@ -853,21 +1145,228 @@ namespace _6502_Emulator
             Opcodes[0xFE] = SetOP("INC", 7, 0xFE, INC_, AddressingMode.ABX);
 
 
-            //RETURN
+            //INCREMENT X (INX)
+
+            Opcodes[0xE8] = SetOP("INX", 2, 0xE8, INX_, AddressingMode.IMP);
+
+            //INCREMENT Y (INY)
+
+            Opcodes[0xC8] = SetOP("INY", 2, 0xC8, INY_, AddressingMode.IMP);
+
+
+            //JUMP (JMP)
+
+            Opcodes[0x4C] = SetOP("JMP", 3, 0x4C, JMP_, AddressingMode.ABS);
+
+            Opcodes[0x6C] = SetOP("JMP", 5, 0x6C, JMP_, AddressingMode.IND);
+
+            // JUMP TO SUBROUTIE
+            
+            Opcodes[0x20] = SetOP("JSR", 5, 0x6C, JSR_, AddressingMode.ABS);
+
+            //LOAD ACC (LDA)
+
+            Opcodes[0xA9] = SetOP("LDA", 2, 0xA9, LDA_, AddressingMode.IMM);
+
+            Opcodes[0xA5] = SetOP("LDA", 3, 0xA5, LDA_, AddressingMode.ZP0);
+
+            Opcodes[0xB5] = SetOP("LDA", 4, 0xB5, LDA_, AddressingMode.ZPX);
+
+            Opcodes[0xAD] = SetOP("LDA", 4, 0xAD, LDA_, AddressingMode.ABS);
+
+            Opcodes[0xBD] = SetOP("LDA", 4, 0xBD, LDA_, AddressingMode.ABX, true);
+
+            Opcodes[0xB9] = SetOP("LDA", 4, 0xB9, LDA_, AddressingMode.ABY, true);
+
+            Opcodes[0xA1] = SetOP("LDA", 6, 0xA1, LDA_, AddressingMode.IZX);
+
+            Opcodes[0xB1] = SetOP("LDA", 5, 0xB1, LDA_, AddressingMode.IZY, true);
+
+
+            //LOAD X (LDX)
+
+            Opcodes[0xA2] = SetOP("LDX", 2, 0xA2, LDX_, AddressingMode.IMM);
+
+            Opcodes[0xA6] = SetOP("LDX", 3, 0xA6, LDX_, AddressingMode.ZP0);
+
+            Opcodes[0xB6] = SetOP("LDX", 4, 0xB6, LDX_, AddressingMode.ZPY);
+
+            Opcodes[0xAE] = SetOP("LDX", 4, 0xAE, LDX_, AddressingMode.ABS);
+
+            Opcodes[0xBE] = SetOP("LDX", 4, 0xBE, LDX_, AddressingMode.ABY, true);
+
+            //LOAD Y (LDY)
+
+            Opcodes[0xA0] = SetOP("LDY", 2, 0xA0, LDY_, AddressingMode.IMM);
+
+            Opcodes[0xA4] = SetOP("LDY", 3, 0xA4, LDY_, AddressingMode.ZP0);
+
+            Opcodes[0xB4] = SetOP("LDY", 4, 0xB4, LDY_, AddressingMode.ZPY);
+
+            Opcodes[0xAC] = SetOP("LDY", 4, 0xAC, LDY_, AddressingMode.ABS);
+
+            Opcodes[0xBC] = SetOP("LDY", 4, 0xBC, LDY_, AddressingMode.ABY, true);
+
+            // LOGICAL SHIFT RIGHT (LSR)
+
+            Opcodes[0x4A] = SetOP("LSR", 2, 0x4A, LSR_, AddressingMode.A);
+
+            Opcodes[0x46] = SetOP("LSR", 5, 0x46, LSR_, AddressingMode.ZP0);
+
+            Opcodes[0x56] = SetOP("LSR", 6, 0x56, LSR_, AddressingMode.ZPX);
+
+            Opcodes[0x4E] = SetOP("LSR", 6, 0x4E, LSR_, AddressingMode.ABS);
+
+            Opcodes[0x5E] = SetOP("LSR", 7, 0x5E, LSR_, AddressingMode.ZPX);
+
+
+            // NO OPERATION (NOP)
+
+            Opcodes[0xEA] = SetOP("NOP", 2, 0xEA, NOP_, AddressingMode.IMP);
+
+
+            // OR WITH ACCUMULATOR (ORA)
+
+            Opcodes[0x09] = SetOP("ORA", 2, 0x09, ORA_, AddressingMode.IMM);
+
+            Opcodes[0x05] = SetOP("ORA", 3, 0x05, ORA_, AddressingMode.ZP0);
+
+            Opcodes[0x15] = SetOP("ORA", 4, 0x15, ORA_, AddressingMode.ZPX);
+
+            Opcodes[0x0D] = SetOP("ORA", 4, 0x0D, ORA_, AddressingMode.ABS);
+
+            Opcodes[0x1D] = SetOP("ORA", 4, 0x1D, ORA_, AddressingMode.ABX, true);
+
+            Opcodes[0x19] = SetOP("ORA", 4, 0x19, ORA_, AddressingMode.ABY, true);
+
+            Opcodes[0x01] = SetOP("ORA", 6, 0x01, ORA_, AddressingMode.IZX);
+
+            Opcodes[0x11] = SetOP("ORA", 5, 0x11, ORA_, AddressingMode.IZY, true);
+
+            //PUSH
+
+            Opcodes[0x48] = SetOP("PHA", 3, 0x48, PHA_, AddressingMode.IMP);
+
+            Opcodes[0x08] = SetOP("PHP", 3, 0x08, PHP_, AddressingMode.IMP);
+
+            // PULL
+
+            Opcodes[0x68] = SetOP("PLA", 3, 0x68, PLA_, AddressingMode.IMP);
+
+            Opcodes[0x28] = SetOP("PLP", 3, 0x28, PLP_, AddressingMode.IMP);
+
+            //ROTATE LEFT (ROL)
+
+            Opcodes[0x2A] = SetOP("ROL", 2, 0x2A, ROL_, AddressingMode.A);
+
+            Opcodes[0x26] = SetOP("ROL", 5, 0x26, ROL_, AddressingMode.ZP0);
+
+            Opcodes[0x36] = SetOP("ROL", 6, 0x36, ROL_, AddressingMode.ZPX);
+
+            Opcodes[0x2E] = SetOP("ROL", 6, 0x2E, ROL_, AddressingMode.ABS);
+
+            Opcodes[0x3E] = SetOP("ROL", 7, 0x3E, ROL_, AddressingMode.ZPX);
+
+            // ROTATE RIGHT (ROR)
+
+            Opcodes[0x6A] = SetOP("ROR", 2, 0x0A, ROR_, AddressingMode.A);
+
+            Opcodes[0x66] = SetOP("ROR", 5, 0x06, ROR_, AddressingMode.ZP0);
+
+            Opcodes[0x76] = SetOP("ROR", 6, 0x16, ROR_, AddressingMode.ZPX);
+
+            Opcodes[0x6E] = SetOP("ROR", 6, 0x0E, ROR_, AddressingMode.ABS);
+
+            Opcodes[0x7E] = SetOP("ROR", 7, 0x0E, ROR_, AddressingMode.ZPX);
+
+
+            //RETURN FROM INTERRUPT
 
             Opcodes[0x40] = SetOP("RTI", 6, 0x40, RTI_, AddressingMode.IMP);
 
 
+            //RETURN FROM SUBROUTINE
 
-            // NO OPERATION
-
-            Opcodes[0xEA] = SetOP("  ", 2, 0xEA, NOP_, AddressingMode.IMP);
-
+            Opcodes[0x60] = SetOP("RTS", 6, 0x60, RTS_, AddressingMode.IMP);
 
 
+            //SET STATUS
+
+            Opcodes[0x38] = SetOP("SEC", 2, 0x38, SEC_, AddressingMode.IMP);
+
+            Opcodes[0xF8] = SetOP("SED", 2, 0xFE, SED_, AddressingMode.IMP);
+
+            Opcodes[0x78] = SetOP("SEI", 2, 0xFE, SEI_, AddressingMode.IMP);
+
+            //SUBTRACT WITH CARRY (SBC)
+
+            Opcodes[0xE9] = SetOP("SBC", 2, 0xE9, SBC_, AddressingMode.IMM);
+
+            Opcodes[0xE5] = SetOP("SBC", 3, 0xE5, SBC_, AddressingMode.ZP0);
+
+            Opcodes[0xF5] = SetOP("SBC", 4, 0xF5, SBC_, AddressingMode.ZPX);
+
+            Opcodes[0xED] = SetOP("SBC", 4, 0xED, SBC_, AddressingMode.ABS);
+
+            Opcodes[0xFD] = SetOP("SBC", 4, 0xFD, SBC_, AddressingMode.ABX, true);
+
+            Opcodes[0xF9] = SetOP("SBC", 4, 0xF9, SBC_, AddressingMode.ABY, true);
+
+            Opcodes[0xE1] = SetOP("SBC", 6, 0xE1, SBC_, AddressingMode.IZX);
+
+            Opcodes[0xF1] = SetOP("SBC", 5, 0xF1, SBC_, AddressingMode.IZY, true);
 
 
+            //STORE ACC (STA)
 
+            Opcodes[0x85] = SetOP("STA", 3, 0x85, STA_, AddressingMode.ZP0);
+
+            Opcodes[0x95] = SetOP("STA", 4, 0x95, STA_, AddressingMode.ZPX);
+
+            Opcodes[0x8D] = SetOP("STA", 4, 0x8D, STA_, AddressingMode.ABS);
+
+            Opcodes[0x9D] = SetOP("STA", 5, 0x9D, STA_, AddressingMode.ABX);
+
+            Opcodes[0x99] = SetOP("STA", 5, 0x99, STA_, AddressingMode.ABY);
+
+            Opcodes[0x81] = SetOP("STA", 6, 0x81, STA_, AddressingMode.IZX);
+
+            Opcodes[0x91] = SetOP("STA", 6, 0x91, STA_, AddressingMode.IZY);
+
+            // STORE X
+
+            Opcodes[0x86] = SetOP("STX", 3, 0x86, STX_ , AddressingMode.ZP0);
+
+            Opcodes[0x96] = SetOP("STA", 4, 0x96, STX_, AddressingMode.IZY);
+
+            Opcodes[0x8E] = SetOP("STA", 4, 0x8E, STX_, AddressingMode.ABS);
+
+
+            // STORE Y
+
+            Opcodes[0x84] = SetOP("STY", 3, 0x84, STY_, AddressingMode.ZP0);
+
+            Opcodes[0x94] = SetOP("STA", 4, 0x94, STY_, AddressingMode.IZX);
+
+            Opcodes[0x8C] = SetOP("STA", 4, 0x8E, STY_, AddressingMode.ABS);
+
+
+            //TRANSFER 
+
+            Opcodes[0xAA] = SetOP("TAX", 2, 0xAA, TAX_, AddressingMode.IMP);
+
+            Opcodes[0xA8] = SetOP("TAY", 2, 0xAA, TAY_, AddressingMode.IMP);
+
+            Opcodes[0xBA] = SetOP("TSX", 2, 0xBA, TSX_, AddressingMode.IMP);
+
+            Opcodes[0x8A] = SetOP("TXA", 2, 0x8A, TXA_, AddressingMode.IMP);
+
+            Opcodes[0x9A] = SetOP("TXS", 2, 0x9A, TXS_, AddressingMode.IMP);
+
+            Opcodes[0x98] = SetOP("TYA", 2, 0x98, TYA_, AddressingMode.IMP);
+
+
+        
 
 
 
@@ -985,7 +1484,6 @@ namespace _6502_Emulator
         }
 
 
-
         //Hardware Functions
         public void DebugReset()
         {
@@ -1003,10 +1501,10 @@ namespace _6502_Emulator
             totalCycles = 0;
             currentInstruction = Opcodes[0xEA];
             cyclesRemaining = 0;
-            
+            branch = false;  
         }
 
-        public Instruction RESET;
+        Instruction RESET;
         public void Reset()
         {
             ACC = 0;
@@ -1029,7 +1527,7 @@ namespace _6502_Emulator
             cyclesRemaining = 8;
         }
 
-        public Instruction IRQ;
+        Instruction IRQ;
         public void Irq() // Interrupt Request
         {
             if (GetFlag(SR_Flags.I) == 0)
@@ -1059,14 +1557,11 @@ namespace _6502_Emulator
                 cyclesRemaining = 7;
                 currentInstruction = IRQ;
             }
-        
-        
-        
-        
+       
         
         }
 
-        public Instruction NMI;
+        Instruction NMI;
         public void Nmi() // Non Maskable Interrupt
         {
            
@@ -1094,7 +1589,6 @@ namespace _6502_Emulator
 
                 cyclesRemaining = 7;
                 currentInstruction = NMI;
-
 
         }
 

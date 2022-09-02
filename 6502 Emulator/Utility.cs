@@ -508,7 +508,7 @@ namespace _6502_Emulator
 
 
 
-        public void PrintInstructions(int totalCycles, int cyclesRemaining, Instruction currentInstruction, ushort abs_address, byte data, ushort instructionBaseAddress, ushort rel_address, ushort instructionStartAddress, Queue<List<D_string>> instructionQueue)
+        public void PrintInstructions(int totalCycles, int cyclesRemaining, Instruction currentInstruction, ushort abs_address, byte data, ushort instructionBaseAddress, ushort rel_address, ushort instructionStartAddress, Queue<List<D_string>> instructionQueue , bool branch)
         {
             int Y_Coord = 0;
 
@@ -592,6 +592,11 @@ namespace _6502_Emulator
                         AddressingMode = new D_string(" {ABX}");
                         break;
 
+                    case Instruction.AddressingMode.ABY:
+                        Data = new D_string(" $" + wanda.ConvertToHEX(abs_address, 4) + " -> " + wanda.ConvertToHEX(data), ConsoleColor.Cyan);
+                        AddressingMode = new D_string(" {ABY}");
+                        break;
+
                     case Instruction.AddressingMode.IZX:
                         targetAddress = new D_string(" ($" + wanda.ConvertToHEX(instructionBaseAddress, 2) + ", X)", ConsoleColor.Cyan);
                         secondaryAddress = new D_string(" [$" + wanda.ConvertToHEX(abs_address, 4) + "]", ConsoleColor.DarkYellow);
@@ -607,8 +612,17 @@ namespace _6502_Emulator
                         break;
 
                     case Instruction.AddressingMode.REL:
-                        secondaryAddress = new D_string(" " + wanda.ConvertToHEX(abs_address - rel_address)  + " + $" + wanda.ConvertToHEX(rel_address, 4), ConsoleColor.DarkYellow);
-                        Data = new D_string(" -> [$" + wanda.ConvertToHEX(abs_address, 4) + "]", ConsoleColor.Cyan);
+                        if (branch)
+                        {
+                            secondaryAddress = new D_string(" " + wanda.ConvertToHEX(abs_address - rel_address) + " + $" + wanda.ConvertToHEX(rel_address, 4), ConsoleColor.DarkYellow);
+                            Data = new D_string(" -> [$" + wanda.ConvertToHEX(abs_address, 4) + "]", ConsoleColor.Cyan);
+                        }
+
+                        else
+                        {
+                            Data = new D_string(" NO BRANCH -> [$" + wanda.ConvertToHEX(abs_address + 1 , 4) + "]", ConsoleColor.Cyan);
+                        }
+
                         AddressingMode = new D_string(" {REL}");
                         break;
 

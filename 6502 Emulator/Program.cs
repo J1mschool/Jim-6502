@@ -10,11 +10,10 @@ namespace _6502_Emulator
         {
             CpuTests C = new CpuTests();
 
-            //C.InitTests();
+           // C.InitTests();
+           // C.RunAllTests();
             
-            //C.RunAllTests();
-            
-           C.Main(); // <- Normal Operation
+      // C.Main("C8 C8 C8 C8 " ); // <- Normal Operation
 
         }
     }

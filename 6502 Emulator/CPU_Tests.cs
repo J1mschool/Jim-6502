@@ -73,7 +73,7 @@ namespace _6502_Emulator
             console.PrintMemory(cpu.ram.RAM_Array, 16, 16, cpu.start_address, 0, 0, "RAM");    // Zero Page
             console.PrintMemory(cpu.ram.RAM_Array, 16, 16, cpu.start_address, 0x8000, 17, "");  // Page 80 (0x8000)
             console.PrintRegisters(cpu.ACC, cpu.X, cpu.Y, cpu.STKptr, cpu.SR, cpu.PC);
-            console.PrintInstructions(cpu.totalCycles, cpu.cyclesRemaining, cpu.currentInstruction, cpu.abs_address, cpu.fetchedByte, cpu.InstructionBaseAddress, cpu.rel_address, cpu.start_address, instructionQueue);
+            console.PrintInstructions(cpu.totalCycles, cpu.cyclesRemaining, cpu.currentInstruction, cpu.abs_address, cpu.fetchedByte, cpu.InstructionBaseAddress, cpu.rel_address, cpu.start_address, instructionQueue, cpu.branch);
 
 
         }
@@ -83,34 +83,31 @@ namespace _6502_Emulator
             //Console.Beep();
             Console.CursorVisible = false;
 
-            console.PrintMemory(cpu.ram.RAM_Array, 16, 16, cpu.start_address, 0X00 , 0, "RAM -");    // Zero Page
+            console.PrintMemory(cpu.ram.RAM_Array, 16, 16, cpu.start_address, 0X00 , 0, "RAM");    // Zero Page
             console.PrintMemory(cpu.ram.RAM_Array, 16, 16, (ushort)(cpu.STKptr + 0x0100),0x0100, 17, "");    
             // console.PrintMemory(cpu.ram.RAM_Array, 16, 16, cpu.start_address, 0x8000, 19, "");  // Page 80 (0x8000)
         
 
              console.PrintRegisters(cpu.ACC, cpu.X, cpu.Y, cpu.STKptr, cpu.SR, cpu.PC);
-            console.PrintInstructions(cpu.totalCycles, cpu.cyclesRemaining, cpu.currentInstruction, cpu.abs_address, cpu.fetchedByte, cpu.InstructionBaseAddress, cpu.rel_address, cpu.start_address, instructionQueue);
+            console.PrintInstructions(cpu.totalCycles, cpu.cyclesRemaining, cpu.currentInstruction, cpu.abs_address, cpu.fetchedByte, cpu.InstructionBaseAddress, cpu.rel_address, cpu.start_address, instructionQueue, cpu.branch);
 
 
 
         }
-        public void Main(string program = "00 00 00 ")
+        public void Main(string program = "A0 FF BE 03 00 69 FF 65 03 75 12 6D 02 ")
         {
             cpu.DebugReset();
             cpu.ram.Reset();
-             
-            peter.LoadProgram(program, 0, cpu.ram.RAM_Array);
-            cpu.ram.RAM_Array[0XFFFC] = 0x00;
-            cpu.ram.RAM_Array[0XFFFD] = 0x80;
 
-            cpu.ram.RAM_Array[0XFFFE] = 0x05;
+            cpu.ram.RAM_Array[0XFFFE] = 00;
             cpu.ram.RAM_Array[0XFFFF] = 0x80;
+            
+            cpu.ACC = 2;
 
-            peter.LoadProgram("EE 03 80 FE ", 0, cpu.ram.RAM_Array);
-            peter.LoadProgram("40 ", 0x8005, cpu.ram.RAM_Array);
-
+            peter.LoadProgram(program, 0, cpu.ram.RAM_Array);
+            peter.LoadProgram("A0 FF BE 03 00 69 FF 65 03 75 12 6D 02 ", 0x8000, cpu.ram.RAM_Array);
             //INITIAL PRINT;
-            UpdateConsole_Plus();
+            UpdateConsole();
             Console.ReadLine();
 
             //CPU MAIN LOOP
@@ -122,7 +119,7 @@ namespace _6502_Emulator
                 if (cpu.cyclesRemaining == 0)
                 {
 
-                    UpdateConsole_Plus();
+                    UpdateConsole();
                     Console.SetCursorPosition(00, 39);
 
                     string f = Console.ReadLine();
@@ -130,7 +127,6 @@ namespace _6502_Emulator
                     if (f.ToUpper() == "RESET")
                         cpu.Reset();
 
-    
                     if (f.ToUpper() == "IRQ")
                         cpu.Irq();
 
@@ -144,31 +140,29 @@ namespace _6502_Emulator
             }
 
         }
-        public void RunProgram()
+        public void RunProgram(int instructions)
         {
-            while (cpu.currentInstruction.assemblerName != "???")
+            for (int i = 0; i < instructions; i = 0)
             {
-                cpu.Clock();
+               if (cpu.cyclesRemaining >= 0)
+                {
+                    cpu.Clock();
+
+                    if (cpu.cyclesRemaining == 0)
+                    {
+                        instructions -= 1;
+                    }
+                    
+                }
+           
             }
+
+
         }
 
         public List<Test> AllTests = new List<Test>();
-
-        public Test DS_Flags;
-
-        public Test ASL_ACC;
-        public Test ASL_ZP0;
-        public Test ASL_BEQ;
-
-        public Test INC_ZP0;
-        public Test INC_ZPX;
-        public Test INC_ABS;
-        public Test INC_ABX;
-        public Test CMP_BEQ;
-
-
-        public Test INTERRUPTS;
-
+        
+      
 
         public void RunAllTests()
         {
@@ -189,37 +183,31 @@ namespace _6502_Emulator
         }
         public void InitTests()
         {
-            DS_Flags = SetTest("DesetFlags", DesetFlags, cpu);
 
-            AllTests.Add(DS_Flags);
             string ADC_Test = "65 FF 65 23 75 12 6D 02 00 ";
+            string LOAD_XY_OVERFLOW = "A0 FF BE 03 00 00 ";
+            string LOAD_XYA_OVERFLOW = "A0 FF A2 03 A6 02 ";
+
+            AllTests.Add(SetTest("DesetFlags", DesetFlags, cpu));
+            AllTests.Add(SetTest("SetFlags", SetFlags, cpu));
 
             //ASL
-            ASL_ACC = SetTest("ASL_ACC", ASLACC, cpu);
-            ASL_ZP0 = SetTest("ASL_ZP0", ASLZP0, cpu);
-
-            AllTests.Add(ASL_ACC);
-            AllTests.Add(ASL_ZP0);
+            AllTests.Add(SetTest("ASL_ACC", ASLACC, cpu));
+            AllTests.Add(SetTest("ASL_ZP0", ASLZP0, cpu));
 
             //BEQ        
-            CMP_BEQ = SetTest("CMP_BEQ", CMPBEQ, cpu);
-            AllTests.Add(CMP_BEQ);
+            AllTests.Add(SetTest("CMP_BEQ", CMPBEQ, cpu));
 
             //INC
-            INC_ZP0 = SetTest("INC_ZP0", INCZP0, cpu);
-            INC_ZPX = SetTest("INC_ZPX", INCZPX, cpu);
-            INC_ABS = SetTest("INC_ABS", INCABS, cpu);
-            INC_ABX = SetTest("INC_ABX", INCABX, cpu);
-
-            AllTests.Add(INC_ZP0);
-            AllTests.Add(INC_ZPX);
-            AllTests.Add(INC_ABS);
-            AllTests.Add(INC_ABX);
+     
+            AllTests.Add(SetTest("INC_ZP0", INCZP0, cpu));
+            AllTests.Add(SetTest("INC_ZPX", INCZPX, cpu));
+            AllTests.Add(SetTest("INC_ABS", INCABS, cpu));
+            AllTests.Add(SetTest("INC_ABX", INCABX, cpu));
 
             //Interrupts /reset
 
-            INTERRUPTS = SetTest("RESET_TEST ", RESET_TEST, cpu);
-            AllTests.Add(INTERRUPTS);
+            // AllTests.Add(SetTest("RESET_TEST ", RESET_TEST, cpu));
 
         }
 
@@ -233,7 +221,7 @@ namespace _6502_Emulator
 
 
             peter.LoadProgram("D8 58 B8 ", 0, cpu.ram.RAM_Array);
-            RunProgram();
+            RunProgram(3);
 
 
             if (cpu.SR == 0)        //Ensures Flags Can Be Cleared
@@ -247,14 +235,30 @@ namespace _6502_Emulator
 
 
         }
+        bool SetFlags()
+        {
+
+            peter.LoadProgram("38 F8 78 ", 0, cpu.ram.RAM_Array);
+            RunProgram(3);
+
+            if (cpu.IsFlagSet(CPU_6502.SR_Flags.I) && cpu.IsFlagSet(CPU_6502.SR_Flags.D) && cpu.IsFlagSet(CPU_6502.SR_Flags.C))       
+                return true;
+
+            else
+            {
+                return false;
+            }
+
+
+        }
 
         //INC
         bool INCZP0()
         {
-            peter.LoadProgram("E6 05 ", 0, cpu.ram.RAM_Array);
+            peter.LoadProgram("E6 05 EA ", 0, cpu.ram.RAM_Array);
             cpu.ram.RAM_Array[0x05] = 1;
 
-            RunProgram();
+            RunProgram(3);
 
             if (cpu.ram.RAM_Array[0x05] == 2)
             {
@@ -274,7 +278,7 @@ namespace _6502_Emulator
 
             peter.LoadProgram("F6 05 ", 0, cpu.ram.RAM_Array);
 
-            RunProgram();
+            RunProgram(1);
 
             if (cpu.ram.RAM_Array[0x08] == 2)
             {
@@ -291,7 +295,7 @@ namespace _6502_Emulator
             cpu.DebugReset();
             peter.LoadProgram("EE 03 80 ", 0, cpu.ram.RAM_Array);
 
-            RunProgram();
+            RunProgram(1);
 
             if (cpu.ram.RAM_Array[0x8003] == 1)
             {
@@ -309,7 +313,7 @@ namespace _6502_Emulator
             cpu.X = 1;
             peter.LoadProgram("FE 03 80 ", 0, cpu.ram.RAM_Array);
 
-            RunProgram();
+            RunProgram(1);
 
             if (cpu.ram.RAM_Array[0x8004] == 1 && (cpu.totalCycles - 1) == 7)
             {
@@ -324,14 +328,14 @@ namespace _6502_Emulator
 
 
         }
-
+  
         //ASL
         bool ASLACC()
         {
             cpu.ACC = 1;
             peter.LoadProgram("0A 0A 0A ", 0, cpu.ram.RAM_Array); // shift Acc 3 times
 
-            RunProgram();
+            RunProgram(3);
 
             if (cpu.ACC == 8)
             {
@@ -348,7 +352,7 @@ namespace _6502_Emulator
             cpu.ram.RAM_Array[3] = 128;
             peter.LoadProgram("06 03 ", 0, cpu.ram.RAM_Array);
 
-            RunProgram();
+            RunProgram(1);
 
             if (cpu.ram.RAM_Array[3] == 0 && cpu.IsFlagSet(CPU_6502.SR_Flags.C) == true) //Test for C
             {
@@ -366,9 +370,9 @@ namespace _6502_Emulator
         bool CMPBEQ()
         {
             cpu.ACC = 2;
-
+            //COMPARE ACC WITH 2 > THE ARE THE SAME SO BRANCH
             peter.LoadProgram("C9 02 F0 09 ", 0, cpu.ram.RAM_Array);
-            RunProgram();
+            RunProgram(2);
 
 
             if (cpu.PC  == 0x0E)
@@ -382,6 +386,8 @@ namespace _6502_Emulator
 
         }
 
+
+        //HardWare
         bool RESET_TEST()
         {
             cpu.DebugReset();
@@ -392,11 +398,34 @@ namespace _6502_Emulator
             peter.LoadProgram("EE 03 80 ", 0, cpu.ram.RAM_Array);
             peter.LoadProgram("FE 03 80 ", 0x8000, cpu.ram.RAM_Array);
 
-            RunProgram();
+            RunProgram(1);
+
+            cpu.Reset();
+            RunProgram(1);
+
+            return true;
+        }
+
+        bool RESET_TEST2()
+        {
+            cpu.DebugReset();
+
+            // SET Reset Vectors
+            cpu.ram.RAM_Array[0XFFFC] = 0x00;   
+            cpu.ram.RAM_Array[0XFFFD] = 0x80;
+
+            cpu.ram.RAM_Array[0XFFFE] = 0x05;
+            cpu.ram.RAM_Array[0XFFFF] = 0x80;
+
+            //Run -
+            peter.LoadProgram("EE 03 80 FE ", 0, cpu.ram.RAM_Array);
+            peter.LoadProgram("40 ", 0x8005, cpu.ram.RAM_Array);
+
+            RunProgram(2);
             UpdateConsole_Plus();
             Console.ReadLine();
-            cpu.Reset();
-            RunProgram();
+            cpu.Irq();
+            RunProgram(1);
             UpdateConsole_Plus();
             Console.ReadLine();
             Console.Clear();
